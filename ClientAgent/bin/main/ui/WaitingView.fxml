@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressIndicator?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.text.Font?>
+
+<VBox spacing="20" alignment="CENTER" prefWidth="500" prefHeight="350"
+      style="-fx-background-color: #f0f8ff; -fx-border-color: #3498db; -fx-border-width: 2;"
+      xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="main.ui.WaitingController">
+    
+    <padding>
+        <Insets top="30" right="30" bottom="30" left="30"/>
+    </padding>
+
+    <ProgressIndicator prefWidth="60" prefHeight="60"/>
+
+    <Label text="KẾT NỐI THÀNH CÔNG!" textFill="#27ae60">
+        <font><Font name="System Bold" size="22.0"/></font>
+    </Label>
+    
+    <Label fx:id="infoLabel" text="Thí sinh: ..." textAlignment="CENTER" wrapText="true">
+        <font><Font size="16.0"/></font>
+    </Label>
+    
+    <Label text="Máy tính đang trong chế độ giám sát phòng thi." textFill="#7f8c8d"/>
+    <Label text="Mọi hành vi mở ứng dụng cấm sẽ được ghi nhận và gửi về Giám thị." 
+           textFill="#e74c3c" style="-fx-font-weight: bold;" wrapText="true" textAlignment="CENTER">
+        <font><Font size="13.0"/></font>
+    </Label>
+
+</VBox>
