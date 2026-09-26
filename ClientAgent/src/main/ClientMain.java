@@ -19,6 +19,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,7 +44,7 @@ public class ClientMain extends Application {
     private static String currentStudentName = "";
     private static String fullMachineId = "";
 
-    // Tập hợp lưu các tiến trình cấm đã gửi cảnh báo để tránh spam log
+    // Tập hợp ghi nhớ các tiến trình cấm đã từng vi phạm (không xóa bỏ để không bị ghi trùng)
     private static Set<String> alertedProcesses = new HashSet<>();
 
     @Override
@@ -132,7 +133,7 @@ public class ClientMain extends Application {
     }
 
     /**
-     * Luồng quét tiến trình cấm ngầm mỗi 3 giây (đã chống lặp log)
+     * Luồng quét tiến trình cấm ngầm mỗi 3 giây (chỉ cảnh báo 1 lần duy nhất cho mỗi ứng dụng)
      */
     private static void startProcessMonitor() {
         Thread monitorThread = new Thread(() -> {
@@ -150,7 +151,6 @@ public class ClientMain extends Application {
 
             while (true) {
                 try {
-                    // Dùng trực tiếp hàm lấy tiến trình từ SystemMonitor
                     List<String> currentRunning = SystemMonitor.getRunningProcesses();
 
                     if (currentRunning != null) {
@@ -159,29 +159,30 @@ public class ClientMain extends Application {
                                     .anyMatch(p -> p.equalsIgnoreCase(blacklisted));
 
                             if (isRunning) {
-                                // Chỉ cảnh báo khi tiến trình cấm mới được bật
+                                // CHỈ CẢNH BÁO NẾU TIẾN TRÌNH NÀY CHƯA TỪNG BỊ BẮT GẶP TRƯỚC ĐÓ
                                 if (!alertedProcesses.contains(blacklisted.toLowerCase())) {
                                     alertedProcesses.add(blacklisted.toLowerCase());
 
                                     String time = java.time.LocalTime.now()
                                             .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
 
-                                    Map<String, Object> payload = Map.of(
-                                            "machineName", fullMachineId,
-                                            "processName", blacklisted,
-                                            "time", time
-                                    );
+                                    // ĐÍNH KÈM ĐẦY ĐỦ studentCode và studentName ĐỂ SERVER XỬ LÝ DATABASE CHUẨN XÁC
+                                    Map<String, Object> payload = new HashMap<>();
+                                    payload.put("machineName", fullMachineId);
+                                    payload.put("studentCode", currentStudentCode);
+                                    payload.put("studentName", currentStudentName);
+                                    payload.put("processName", blacklisted);
+                                    payload.put("time", time);
 
                                     JsonMessage alertMsg = new JsonMessage("ALERT_PROCESS_VIOLATION", payload);
                                     if (writer != null) {
                                         writer.println(gson.toJson(alertMsg));
                                     }
-                                    System.out.println("[CANH BAO] Phát hiện vi phạm: " + blacklisted + " lúc " + time);
+                                    System.out.println("[CANH BAO] Phát hiện vi phạm mới: " + blacklisted + " lúc " + time);
                                 }
-                            } else {
-                                // Nếu sinh viên tắt ứng dụng, gỡ khỏi danh sách theo dõi
-                                alertedProcesses.remove(blacklisted.toLowerCase());
                             }
+                            // LƯU Ý: Không dùng 'alertedProcesses.remove()' khi tắt ứng dụng
+                            // để đảm bảo dù tắt đi bật lại thì tiến trình đó cũng không bị báo/ghi lại lần nữa.
                         }
                     }
 
@@ -235,17 +236,28 @@ public class ClientMain extends Application {
                 sendToServer(new JsonMessage("DATA_PROCESS_LIST", procPayload));
                 break;
 
+            // XỬ LÝ LỆNH CHỤP ẢNH MÀN HÌNH VÀ GỬI TRẢ KÈM TÊN GIÁM THỊ
             case "CMD_TAKE_SCREENSHOT":
             case "SERVER_CMD_TAKE_SCREENSHOT":
                 new Thread(() -> {
+                    // 1. Trích xuất tên giám thị từ gói tin lệnh (nếu có)
+                    String proctorName = "Hệ thống";
+                    if (payload != null && payload.get("proctorName") != null) {
+                        proctorName = (String) payload.get("proctorName");
+                    }
+
+                    // 2. Chụp màn hình ra chuỗi Base64
                     String base64Image = SystemMonitor.captureScreenBase64();
                     if (base64Image != null) {
-                        Map<String, Object> shotPayload = Map.of(
-                                "machineName", fullMachineId,
-                                "imageData", base64Image
-                        );
+                        Map<String, Object> shotPayload = new HashMap<>();
+                        shotPayload.put("machineName", fullMachineId);
+                        shotPayload.put("studentCode", currentStudentCode);
+                        shotPayload.put("studentName", currentStudentName);
+                        shotPayload.put("imageData", base64Image);
+                        shotPayload.put("proctorName", proctorName); // Gửi kèm tên giám thị ngược lại Server
+
                         sendToServer(new JsonMessage("RESP_SCREENSHOT", shotPayload));
-                        System.out.println("[CLIENT] Đã chụp ảnh màn hình và gửi về Server.");
+                        System.out.println("[CLIENT] Đã chụp ảnh và gửi về Server theo yêu cầu của: " + proctorName);
                     }
                 }).start();
                 break;

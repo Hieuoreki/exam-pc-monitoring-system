@@ -1,29 +1,49 @@
 package main;
 
 import java.net.ServerSocket;
-import java.net.Socket;
-
+import javafx.application.Application;
+import javafx.fxml.FXMLLoader;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
+import javafx.stage.Stage;
 import main.core.ClientHandler;
 
-public class ServerMain {
+public class ServerMain extends Application {
+    private static final int PORT = 9999;
 
-    public static final int SERVER_PORT = 9999;
+    @Override
+    public void start(Stage primaryStage) {
+        try {
+            // 1. Chạy Socket Server trên luồng nền
+            new Thread(this::startSocketServer).start();
 
-    public static void main(String[] args) {
-        System.out.println("ServerJavaTCP đang khởi động...");
-        
-        try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
-            System.out.println("Đã khởi động. Đang lắng nghe trên cổng " + SERVER_PORT);
-            System.out.println("--------------------------------------");            
-            while (true) {
-                Socket clientSocket = serverSocket.accept();
-                System.out.println("Một client mới đã kết nối: " + clientSocket.getInetAddress());
-                ClientHandler clientHandler = new ClientHandler(clientSocket);
-                clientHandler.start(); 
-            }
+            // 2. Nạp giao diện FXML từ package main.ui
+            FXMLLoader loader = new FXMLLoader(getClass().getResource("/main/ui/ServerView.fxml"));
+            Parent root = loader.load();
+
+            primaryStage.setTitle("MÁY CHỦ QUẢN TRỊ PHÒNG THI (SERVER)");
+            primaryStage.setScene(new Scene(root, 1050, 550));
+            primaryStage.setOnCloseRequest(e -> System.exit(0));
+            primaryStage.show();
 
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private void startSocketServer() {
+        try (ServerSocket serverSocket = new ServerSocket(PORT)) {
+            System.out.println("[SERVER] Đang lắng nghe Socket trên cổng: " + PORT);
+            while (true) {
+                var s = serverSocket.accept();
+                new ClientHandler(s).start();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void main(String[] args) {
+        launch(args);
     }
 }

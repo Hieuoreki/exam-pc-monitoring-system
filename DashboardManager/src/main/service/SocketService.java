@@ -8,6 +8,7 @@ import java.net.Socket;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -33,9 +34,10 @@ public class SocketService {
     private ObservableList<String> agentList = FXCollections.observableArrayList();
     private StringProperty configData = new SimpleStringProperty("Chưa có dữ liệu hệ thống...");
     private ObservableList<String> alertList = FXCollections.observableArrayList();
-    
-    // Property chứa ảnh chụp màn hình nhận từ máy thí sinh
     private ObjectProperty<Image> screenshotImage = new SimpleObjectProperty<>();
+
+    // Listener nhận các phản hồi đăng nhập/đăng ký cho LoginController
+    private Consumer<JsonMessage> messageListener;
 
     private SocketService() {}
 
@@ -62,17 +64,25 @@ public class SocketService {
         return screenshotImage;
     }
 
-    public void connect(String ip, int port) throws Exception {
-        if (socket != null && socket.isConnected() && !socket.isClosed()) {
-            return;
+    public void setMessageListener(Consumer<JsonMessage> listener) {
+        this.messageListener = listener;
+    }
+
+    public boolean connect(String ip, int port) {
+        try {
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+            socket = new Socket(ip, port);
+            writer = new PrintWriter(socket.getOutputStream(), true);
+            reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+
+            startListening();
+            startPolling();
+            return true;
+        } catch (Exception e) {
+            return false;
         }
-
-        socket = new Socket(ip, port);
-        writer = new PrintWriter(socket.getOutputStream(), true);
-        reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-
-        startListening();
-        startPolling();
     }
 
     public void sendMessage(JsonMessage message) {
@@ -80,6 +90,11 @@ public class SocketService {
             String jsonMsg = gson.toJson(message);
             writer.println(jsonMsg);
         }
+    }
+
+    // Thêm alias send() để tránh nhầm lẫn giữa send và sendMessage
+    public void send(JsonMessage message) {
+        sendMessage(message);
     }
 
     private void startListening() {
@@ -90,6 +105,11 @@ public class SocketService {
                     try {
                         JsonMessage msg = gson.fromJson(serverJson, JsonMessage.class);
                         if (msg == null || msg.getType() == null) continue;
+
+                        // Chuyển tiếp tin nhắn cho listener (như LoginController) xử lý nếu có
+                        if (messageListener != null) {
+                            messageListener.accept(msg);
+                        }
 
                         switch (msg.getType()) {
                             case "DATA_AGENT_LIST":
@@ -182,16 +202,12 @@ public class SocketService {
                     return;
                 }
 
-                // 1. Nếu danh sách không có gì thay đổi so với hiện tại -> KHÔNG LÀM GÌ CẢ (giữ nguyên lựa chọn)
                 if (agentList.equals(newNames)) {
                     return;
                 }
 
-                // 2. Nếu có máy mới hoặc máy thoát ra -> Cập nhật thông minh không làm mất focus máy đang chọn
-                // Xóa những máy không còn online
                 agentList.removeIf(existing -> !newNames.contains(existing));
 
-                // Thêm những máy mới kết nối vào danh sách
                 for (String name : newNames) {
                     if (!agentList.contains(name)) {
                         agentList.add(name);

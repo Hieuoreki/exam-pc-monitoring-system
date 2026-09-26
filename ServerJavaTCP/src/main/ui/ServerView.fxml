@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Priority?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane prefHeight="550.0" prefWidth="1050.0" xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1" fx:controller="main.ui.ServerController">
+   <padding>
+      <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+   </padding>
+   <top>
+      <HBox alignment="CENTER_LEFT" spacing="25.0" style="-fx-background-color: #2c3e50; -fx-background-radius: 8;" BorderPane.alignment="CENTER">
+         <padding>
+            <Insets bottom="12.0" left="15.0" right="15.0" top="12.0" />
+         </padding>
+         <children>
+            <Label fx:id="lblIp" style="-fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14px;" text="IP Máy Chủ: ..." />
+            <Label fx:id="lblPort" style="-fx-text-fill: #2ecc71; -fx-font-weight: bold; -fx-font-size: 14px;" text="Cổng (Port): 9999" />
+            <Label style="-fx-text-fill: #3498db; -fx-font-size: 14px;" text="Trạng thái: Đang lắng nghe kết nối" />
+         </children>
+      </HBox>
+   </top>
+   <center>
+      <HBox spacing="15.0" BorderPane.alignment="CENTER">
+         <padding>
+            <Insets bottom="15.0" top="15.0" />
+         </padding>
+         <children>
+            <!-- Cột trái: Giám thị đang quản lý (Approved) -->
+            <VBox spacing="10.0" HBox.hgrow="ALWAYS">
+               <children>
+                  <Label style="-fx-font-weight: bold; -fx-font-size: 13px; -fx-text-fill: #27ae60;" text="Danh Sách Giám Thị Đang Quản Lý (Hoạt Động)" />
+                  <TableView fx:id="tableApproved" VBox.vgrow="ALWAYS">
+                     <columns>
+                        <TableColumn fx:id="colApprovedUser" prefWidth="120.0" text="Username" />
+                        <TableColumn fx:id="colApprovedName" prefWidth="180.0" text="Họ và Tên" />
+                        <TableColumn fx:id="colApprovedTime" prefWidth="150.0" text="Ngày Tạo" />
+                     </columns>
+                  </TableView>
+                  <HBox spacing="10.0">
+                     <children>
+                        <Button onAction="#handleAddProctor" style="-fx-background-color: #27ae60; -fx-text-fill: white; -fx-font-weight: bold;" text="Thêm Giám Thị Mới" />
+                        <Button onAction="#handleDeleteApproved" style="-fx-background-color: #c0392b; -fx-text-fill: white; -fx-font-weight: bold;" text="Xóa Giám Thị" />
+                     </children>
+                  </HBox>
+               </children>
+            </VBox>
+
+            <!-- Cột phải: Giám thị chờ duyệt (Pending) -->
+            <VBox spacing="10.0" HBox.hgrow="ALWAYS">
+               <children>
+                  <Label style="-fx-font-weight: bold; -fx-font-size: 13px; -fx-text-fill: #d35400;" text="Danh Sách Giám Thị Chờ Duyệt Tài Khoản" />
+                  <TableView fx:id="tablePending" VBox.vgrow="ALWAYS">
+                     <columns>
+                        <TableColumn fx:id="colPendingUser" prefWidth="120.0" text="Username" />
+                        <TableColumn fx:id="colPendingName" prefWidth="180.0" text="Họ và Tên" />
+                        <TableColumn fx:id="colPendingTime" prefWidth="150.0" text="Ngày Đăng Ký" />
+                     </columns>
+                  </TableView>
+                  <HBox spacing="10.0">
+                     <children>
+                        <Button onAction="#handleApprove" style="-fx-background-color: #2980b9; -fx-text-fill: white; -fx-font-weight: bold;" text="Duyệt Tài Khoản" />
+                        <Button onAction="#handleDeletePending" style="-fx-background-color: #7f8c8d; -fx-text-fill: white; -fx-font-weight: bold;" text="Từ Chối / Xóa" />
+                     </children>
+                  </HBox>
+               </children>
+            </VBox>
+         </children>
+      </HBox>
+   </center>
+</BorderPane>

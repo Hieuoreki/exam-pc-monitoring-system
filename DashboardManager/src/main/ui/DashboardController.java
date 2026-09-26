@@ -1,6 +1,7 @@
 package main.ui;
 
 import java.util.Map;
+import java.util.HashMap;
 import java.util.Optional;
 
 import javafx.fxml.FXML;
@@ -14,6 +15,7 @@ import javafx.scene.control.TextInputDialog;
 import javafx.scene.image.ImageView;
 import main.model.JsonMessage;
 import main.service.SocketService;
+import main.util.SessionManager;
 
 public class DashboardController {
 
@@ -102,10 +104,23 @@ public class DashboardController {
 
     @FXML
     private void handleTakeScreenshotButton() {
-        if (currentSelectedAgent != null) {
-            String target = extractMachineName(currentSelectedAgent);
-            socketService.sendMessage(new JsonMessage("CMD_TAKE_SCREENSHOT", Map.of("targetMachine", target)));
+        // 1. Kiểm tra máy thi đang chọn
+        if (currentSelectedAgent == null || currentSelectedAgent.isEmpty()) {
+            Alert alert = new Alert(AlertType.WARNING, "Vui lòng chọn một máy thi trước khi chụp màn hình!");
+            alert.show();
+            return;
         }
+
+        // 2. Lấy tên máy chuẩn qua hàm extractMachineName sẵn có
+        String targetMachine = extractMachineName(currentSelectedAgent);
+
+        // 3. Đóng gói lệnh kèm TÊN GIÁM THỊ lấy từ SessionManager
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("targetMachine", targetMachine);
+        payload.put("proctorName", SessionManager.loggedInFullName);
+
+        // 4. Gửi lệnh qua SocketService
+        socketService.sendMessage(new JsonMessage("CMD_TAKE_SCREENSHOT", payload));
     }
 
     @FXML
