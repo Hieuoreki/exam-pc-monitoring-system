@@ -49,11 +49,31 @@ public class ClientMain extends Application {
 
     @Override
     public void start(Stage primaryStage) {
-        Platform.setImplicitExit(false);
+        // Cho phép thoát khi đóng ứng dụng
+        Platform.setImplicitExit(true);
         loginStage = primaryStage;
 
-        new Thread(this::startSocketConnection).start();
+        // Bắt sự kiện khi ấn dấu [X] trên cửa sổ điểm danh
+        loginStage.setOnCloseRequest(e -> closeAndExit());
+
+        // Đặt luồng socket là Daemon thread để tự hủy khi tắt app
+        Thread socketThread = new Thread(this::startSocketConnection);
+        socketThread.setDaemon(true);
+        socketThread.start();
+
         showLoginScreen();
+    }
+
+    /**
+     * Hàm đóng socket và hủy tiến trình ngầm hoàn toàn khi ấn [X]
+     */
+    public static void closeAndExit() {
+        try {
+            if (socket != null && !socket.isClosed()) {
+                socket.close(); // Gửi cờ TCP FIN ngắt kết nối ngay lập tức lên Server
+            }
+        } catch (Exception ignored) {}
+        System.exit(0); // Kết thúc toàn bộ tiến trình Java ngầm
     }
 
     private void showLoginScreen() {

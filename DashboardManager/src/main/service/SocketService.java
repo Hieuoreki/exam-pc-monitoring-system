@@ -92,7 +92,7 @@ public class SocketService {
         }
     }
 
-    // Thêm alias send() để tránh nhầm lẫn giữa send và sendMessage
+    // Alias cho sendMessage để tránh xung đột tên hàm
     public void send(JsonMessage message) {
         sendMessage(message);
     }
@@ -148,7 +148,14 @@ public class SocketService {
                                 String time = (String) alertPayload.get("time");
                                 if (time == null) time = "??:??:??";
 
-                                String alert = String.format("[%s] MÁY %s: Vi phạm mở %s", time, machine, process);
+                                String alert;
+                                // Phân biệt thông báo sự kiện thí sinh rời/vào phòng thi với vi phạm tiến trình cấm
+                                if (process != null && (process.contains("ĐÃ RỜI PHÒNG THI") || process.contains("ĐÃ VÀO PHÒNG THI"))) {
+                                    alert = String.format("[%s] SỰ KIỆN: %s", time, process);
+                                } else {
+                                    alert = String.format("[%s] MÁY %s: Vi phạm mở %s", time, machine, process);
+                                }
+
                                 Platform.runLater(() -> alertList.add(0, alert));
                                 break;
 
@@ -202,12 +209,15 @@ public class SocketService {
                     return;
                 }
 
+                // Nếu danh sách không đổi thì giữ nguyên lựa chọn
                 if (agentList.equals(newNames)) {
                     return;
                 }
 
+                // Loại bỏ những máy đã offline
                 agentList.removeIf(existing -> !newNames.contains(existing));
 
+                // Bổ sung các máy mới kết nối
                 for (String name : newNames) {
                     if (!agentList.contains(name)) {
                         agentList.add(name);

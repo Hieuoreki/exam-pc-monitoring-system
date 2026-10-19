@@ -1,4 +1,4 @@
-package main; // (Hoặc package của bạn)
+package main;
 
 import javafx.application.Application;
 import javafx.fxml.FXMLLoader; // Dùng để tải FXML

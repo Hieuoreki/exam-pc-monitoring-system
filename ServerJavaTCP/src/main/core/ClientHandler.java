@@ -7,6 +7,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.HashMap;
@@ -15,7 +16,6 @@ import java.util.Map;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 
-import main.ServerMain; // Dùng để gọi refresh bảng chờ duyệt trên UI Server nếu có
 import main.database.DatabaseManager;
 import main.model.JsonMessage;
 
@@ -33,6 +33,10 @@ public class ClientHandler extends Thread {
     private String studentCode = null;
     private String proctorFullName = ""; // Tên hiển thị của giám thị nếu kết nối này là Admin
 
+    // Thông tin phiên thi của thí sinh
+    private String joinTime = "";
+    private int attendanceId = -1;
+
     public ClientHandler(Socket socket) {
         this.clientSocket = socket;
     }
@@ -45,9 +49,14 @@ public class ClientHandler extends Thread {
         return clientSocket;
     }
 
+    /**
+     * Tự động đính kèm giờ vào phòng thi để hiển thị trên Dashboard ListView
+     * Định dạng: [TênMáy] - [HọTên] ([MãSV]) [Vào: HH:mm:ss]
+     */
     public String getClientInfo() {
         if (studentName != null && studentCode != null) {
-            return agentMachineName + " - " + studentName + " (" + studentCode + ")";
+            String timeTag = (!joinTime.isEmpty()) ? " [Vào: " + joinTime + "]" : "";
+            return agentMachineName + " - " + studentName + " (" + studentCode + ")" + timeTag;
         }
         return agentMachineName != null ? agentMachineName : "Unknown Client";
     }
@@ -81,6 +90,37 @@ public class ClientHandler extends Thread {
         } catch (Exception e) {
             System.out.println("Client " + clientSocket.getInetAddress() + " đã ngắt kết nối.");
         } finally {
+            // ================= GHI NHẬN GIỜ RA & PHÁT CẢNH BÁO RỜI PHÒNG THI =================
+            try {
+                if (agentMachineName != null) {
+                    String leaveTime = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+
+                    // Cập nhật giờ ra vào CSDL SQLite
+                    if (attendanceId != -1) {
+                        DatabaseManager.getInstance().logStudentLeave(attendanceId, leaveTime);
+                    }
+
+                    String sCode = (studentCode != null) ? studentCode : "N/A";
+                    String sName = (studentName != null) ? studentName : agentMachineName;
+
+                    System.out.println("[SERVER] Thí sinh " + sName + " (" + sCode + ") ĐÃ RỜI PHÒNG THI lúc " + leaveTime);
+
+                    // Bắn cảnh báo sự kiện rời phòng thi sang Dashboard
+                    String alertText = String.format("Thí sinh %s (%s) ĐÃ RỜI PHÒNG THI (Vào: %s | Ra: %s)", 
+                            sName, sCode, (joinTime.isEmpty() ? "??:??:??" : joinTime), leaveTime);
+
+                    Map<String, Object> alertPayload = Map.of(
+                            "machineName", agentMachineName,
+                            "processName", alertText,
+                            "time", leaveTime
+                    );
+
+                    manager.broadcastToAdmins(new JsonMessage("ALERT_PROCESS_VIOLATION", alertPayload));
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+
             manager.removeClient(this);
             try {
                 if (reader != null) reader.close();
@@ -98,7 +138,7 @@ public class ClientHandler extends Thread {
         Map<String, Object> payload = message.getPayload();
 
         switch (message.getType()) {
-            // ================= 1. ĐĂNG KÝ / ĐĂNG NHẬP GIÁM THỊ (MỚI) =================
+            // ================= 1. ĐĂNG KÝ / ĐĂNG NHẬP GIÁM THỊ =================
             case "PROCTOR_LOGIN":
                 if (payload != null) {
                     String username = (String) payload.get("username");
@@ -106,12 +146,11 @@ public class ClientHandler extends Thread {
 
                     String result = DatabaseManager.getInstance().checkLogin(username, password);
                     Map<String, Object> resp = new HashMap<>();
-                    resp.put("status", result); // "SUCCESS", "PENDING", "WRONG_PASS", "NOT_FOUND"
+                    resp.put("status", result);
 
                     if ("SUCCESS".equals(result)) {
                         this.proctorFullName = DatabaseManager.getInstance().getProctorFullName(username);
                         resp.put("fullName", this.proctorFullName);
-                        // Đăng ký kết nối này là Admin vào ConnectionManager
                         manager.registerAdmin(this);
                     }
                     sendJson(new JsonMessage("RESP_PROCTOR_LOGIN", resp));
@@ -131,20 +170,33 @@ public class ClientHandler extends Thread {
                                            : "Tên đăng nhập đã tồn tại hoặc lỗi!");
                     sendJson(new JsonMessage("RESP_PROCTOR_REGISTER", resp));
 
-                 // Khi có giám thị đăng ký mới từ xa, gọi Controller tự làm mới bảng:
                     if (main.ui.ServerController.getInstance() != null) {
                         main.ui.ServerController.getInstance().refreshProctorTables();
                     }
                 }
                 break;
 
-            // ================= 2. ĐĂNG KÝ MÁY THI THÍ SINH =================
+            // ================= 2. ĐĂNG KÝ MÁY THI THÍ SINH & GHI NHẬN GIỜ VÀO =================
             case "REGISTER_AGENT":
                 if (payload != null && payload.get("machineName") != null) {
                     this.agentMachineName = (String) payload.get("machineName");
                     this.studentName = (String) payload.get("studentName");
                     this.studentCode = (String) payload.get("studentCode");
+
+                    // 1. Ghi nhận thời gian vào phòng thi
+                    this.joinTime = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+
+                    // 2. Lưu phiên vào bảng exam_attendance trong CSDL
+                    this.attendanceId = DatabaseManager.getInstance().logStudentJoin(
+                            this.studentCode, 
+                            this.studentName, 
+                            this.agentMachineName, 
+                            this.joinTime
+                    );
+
+                    // 3. Đăng ký agent vào danh sách kết nối
                     manager.registerAgent(this.agentMachineName, this);
+                    System.out.println("[SERVER] Thí sinh " + studentName + " (" + studentCode + ") ĐÃ VÀO PHÒNG lúc " + this.joinTime);
                 }
                 break;
 
@@ -160,7 +212,6 @@ public class ClientHandler extends Thread {
             case "CMD_TAKE_SCREENSHOT":
                 if (payload != null && payload.get("targetMachine") != null) {
                     String target = (String) payload.get("targetMachine");
-                    // Nếu gói tin chưa có tên giám thị, lấy tên của phiên đăng nhập này
                     if (!payload.containsKey("proctorName") && !this.proctorFullName.isEmpty()) {
                         payload.put("proctorName", this.proctorFullName);
                     }
@@ -192,15 +243,12 @@ public class ClientHandler extends Thread {
                     String machine = (String) payload.get("machineName");
                     String proctor = (String) payload.getOrDefault("proctorName", "Giám thị");
 
-                    // Lưu ảnh ra ổ đĩa và ghi DB kèm tên Giám thị
                     saveScreenshotToFileAndDB(machine, base64Image, proctor);
-
-                    // Chuyển tiếp ảnh sang Dashboard để Giám thị xem
                     manager.broadcastToAdmins(message);
                 }
                 break;
 
-            // ================= 5. CẢNH BÁO VI PHẠM (CHỈ GHI & BÁO 1 LẦN CHO MỖI ĐỐI TƯỢNG) =================
+            // ================= 5. CẢNH BÁO VI PHẠM (CHỐNG TRÙNG LẶP) =================
             case "ALERT_PROCESS_VIOLATION":
                 if (payload != null) {
                     String proc = (String) payload.get("processName");
@@ -209,10 +257,8 @@ public class ClientHandler extends Thread {
                     String sCode = (studentCode != null) ? studentCode : (String) payload.get("studentCode");
                     String sName = (studentName != null) ? studentName : (String) payload.get("studentName");
 
-                    // Hàm logViolation trả về true NẾU ĐÂY LÀ VI PHẠM MỚI (chưa có trong DB)
                     boolean isNewViolation = DatabaseManager.getInstance().logViolation(mName, sName, sCode, proc, time);
 
-                    // CHỈ PHÁT CẢNH BÁO SANG DASHBOARD KHI LÀ VI PHẠM MỚI
                     if (isNewViolation) {
                         System.out.println("[SERVER] Phát hiện vi phạm mới: " + sCode + " mở " + proc);
                         manager.broadcastToAdmins(message);
@@ -228,23 +274,20 @@ public class ClientHandler extends Thread {
     }
 
     /**
-     * Hàm giải mã Base64, ghi file .jpg vào thư mục screenshots và lưu vào SQLite kèm tên Giám thị
+     * Giải mã Base64, ghi file .jpg và lưu thông tin vào SQLite
      */
     private void saveScreenshotToFileAndDB(String machineName, String base64Image, String proctorName) {
         try {
-            // 1. Tạo thư mục 'screenshots' nếu chưa có
             File folder = new File("screenshots");
             if (!folder.exists()) {
                 folder.mkdirs();
             }
 
-            // 2. Tạo tên file định dạng: [MãSV]_[ThờiGian].jpg
             String code = (studentCode != null && !studentCode.isEmpty()) ? studentCode : machineName;
             String timeStamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
             String fileName = code + "_" + timeStamp + ".jpg";
             File imageFile = new File(folder, fileName);
 
-            // 3. Giải mã Base64 và ghi xuống ổ đĩa
             byte[] imageBytes = Base64.getDecoder().decode(base64Image);
             try (FileOutputStream fos = new FileOutputStream(imageFile)) {
                 fos.write(imageBytes);
@@ -254,7 +297,6 @@ public class ClientHandler extends Thread {
             String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             System.out.println("[SERVER] Đã lưu file ảnh do [" + proctorName + "] yêu cầu: " + imageFile.getAbsolutePath());
 
-            // 4. Lưu đường dẫn và tên Giám thị vào SQLite
             DatabaseManager.getInstance().logScreenshot(machineName, studentName, studentCode, proctorName, relativePath, currentTime);
 
         } catch (Exception e) {

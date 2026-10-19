@@ -26,8 +26,7 @@ public class DatabaseManager {
     }
 
     private void initTables() {
-        // 1. BẢNG VI PHẠM: Thêm ràng buộc UNIQUE(student_code, process_name)
-        // Đảm bảo 1 sinh viên mở 1 web/tiến trình cấm chỉ bị ghi duy nhất 1 lần
+        // 1. BẢNG VI PHẠM: Ràng buộc UNIQUE(student_code, process_name)
         String sqlLogs = "CREATE TABLE IF NOT EXISTS violation_logs ("
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                 + "machine_name TEXT NOT NULL, "
@@ -38,7 +37,7 @@ public class DatabaseManager {
                 + "UNIQUE(student_code, process_name)"
                 + ");";
 
-        // 2. BẢNG CHỤP MÀN HÌNH: Bổ sung cột proctor_name lưu tên giám thị thực hiện
+        // 2. BẢNG CHỤP MÀN HÌNH: Cột proctor_name lưu tên giám thị
         String sqlScreenshots = "CREATE TABLE IF NOT EXISTS screenshots ("
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                 + "machine_name TEXT NOT NULL, "
@@ -49,7 +48,7 @@ public class DatabaseManager {
                 + "captured_time TEXT NOT NULL"
                 + ");";
 
-        // 3. BẢNG QUẢN LÝ GIÁM THỊ: Trạng thái 'APPROVED' hoặc 'PENDING'
+        // 3. BẢNG QUẢN LÝ GIÁM THỊ
         String sqlProctors = "CREATE TABLE IF NOT EXISTS proctors ("
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                 + "username TEXT UNIQUE NOT NULL, "
@@ -59,10 +58,28 @@ public class DatabaseManager {
                 + "created_at TEXT NOT NULL"
                 + ");";
 
+        // 4. BẢNG THEO DÕI THỜI GIAN VÀO / RA PHÒNG THI
+        String sqlAttendance = "CREATE TABLE IF NOT EXISTS exam_attendance ("
+                + "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                + "student_code TEXT NOT NULL, "
+                + "student_name TEXT, "
+                + "machine_name TEXT NOT NULL, "
+                + "join_time TEXT NOT NULL, "
+                + "leave_time TEXT"
+                + ");";
+
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
             stmt.execute(sqlLogs);
             stmt.execute(sqlScreenshots);
             stmt.execute(sqlProctors);
+            stmt.execute(sqlAttendance);
+
+            // Tự động bổ sung cột proctor_name nếu file db cũ chưa có
+            try {
+                stmt.execute("ALTER TABLE screenshots ADD COLUMN proctor_name TEXT DEFAULT 'Hệ thống';");
+            } catch (SQLException ignored) {
+                // Đã có cột thì bỏ qua
+            }
 
             // Tạo sẵn 1 tài khoản Admin mặc định
             String checkAdmin = "SELECT COUNT(*) FROM proctors WHERE username = 'admin'";
@@ -76,9 +93,8 @@ public class DatabaseManager {
         }
     }
 
-    // --- LOGIC 1: GHI NHẬN VI PHẠM (CHỐNG TRÙNG LẶP CHO TỪNG WEB/TIẾN TRÌNH) ---
+    // --- LOGIC 1: GHI NHẬN VI PHẠM (CHỐNG TRÙNG LẶP CHO TỪNG TIẾN TRÌNH) ---
     public synchronized boolean logViolation(String machineName, String studentName, String studentCode, String processName, String violationTime) {
-        // Dùng INSERT OR IGNORE: Nếu cặp (student_code, process_name) đã tồn tại -> bỏ qua
         String sql = "INSERT OR IGNORE INTO violation_logs (machine_name, student_name, student_code, process_name, violation_time) VALUES (?, ?, ?, ?, ?)";
         try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, machineName);
@@ -86,7 +102,7 @@ public class DatabaseManager {
             pstmt.setString(3, studentCode != null ? studentCode : "UNKNOWN");
             pstmt.setString(4, processName);
             pstmt.setString(5, violationTime);
-            return pstmt.executeUpdate() > 0; // Trả về true nếu là vi phạm mới
+            return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             e.printStackTrace();
             return false;
@@ -110,7 +126,38 @@ public class DatabaseManager {
         }
     }
 
-    // --- LOGIC 3: CÁC THAO TÁC QUẢN LÝ GIÁM THỊ ---
+    // --- LOGIC 3: GHI NHẬN THỜI GIAN VÀO / RA PHÒNG THI ---
+    public synchronized int logStudentJoin(String studentCode, String studentName, String machineName, String joinTime) {
+        String sql = "INSERT INTO exam_attendance (student_code, student_name, machine_name, join_time) VALUES (?, ?, ?, ?)";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            pstmt.setString(1, studentCode);
+            pstmt.setString(2, studentName);
+            pstmt.setString(3, machineName);
+            pstmt.setString(4, joinTime);
+            pstmt.executeUpdate();
+            ResultSet rs = pstmt.getGeneratedKeys();
+            if (rs.next()) {
+                return rs.getInt(1); // Trả về ID của phiên thi này
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return -1;
+    }
+
+    public synchronized void logStudentLeave(int sessionId, String leaveTime) {
+        if (sessionId <= 0) return;
+        String sql = "UPDATE exam_attendance SET leave_time = ? WHERE id = ?";
+        try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, leaveTime);
+            pstmt.setInt(2, sessionId);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // --- LOGIC 4: CÁC THAO TÁC QUẢN LÝ GIÁM THỊ ---
     public synchronized boolean registerProctor(String username, String password, String fullName) {
         String sql = "INSERT INTO proctors (username, password, full_name, status, created_at) VALUES (?, ?, ?, 'PENDING', datetime('now', 'localtime'))";
         try (Connection conn = connect(); PreparedStatement pstmt = conn.prepareStatement(sql)) {
